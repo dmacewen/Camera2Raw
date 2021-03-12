@@ -16,6 +16,7 @@
 
 package com.example.android.camera2raw;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -23,6 +24,7 @@ import android.app.DialogFragment;
 import android.app.Fragment;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
@@ -45,6 +47,7 @@ import android.media.ImageReader;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -62,6 +65,9 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Toast;
+
+import androidx.annotation.RequiresApi;
+import androidx.core.app.ActivityCompat;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -352,7 +358,7 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
         @Override
         public void onError(CameraDevice cameraDevice, int error) {
             Log.e(TAG, "Received camera device error: " + error);
-            synchronized(mCameraStateLock) {
+            synchronized (mCameraStateLock) {
                 mState = STATE_CLOSED;
                 mCameraOpenCloseLock.release();
                 cameraDevice.close();
@@ -402,7 +408,7 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
             = new CameraCaptureSession.CaptureCallback() {
 
         private void process(CaptureResult result) {
-            synchronized(mCameraStateLock) {
+            synchronized (mCameraStateLock) {
                 switch (mState) {
                     case STATE_PREVIEW: {
                         // We have nothing to do when the camera preview is running normally.
@@ -416,7 +422,7 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
                             // If auto-focus has reached locked state, we are ready to capture
                             readyToCapture =
                                     (afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED ||
-                                    afState == CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED);
+                                            afState == CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED);
                         }
 
                         // If we are running on an non-legacy device, we should also wait until
@@ -518,12 +524,14 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
                     jpegBuilder.setResult(result);
                     sb.append("Saving JPEG as: ");
                     sb.append(jpegBuilder.getSaveLocation());
+                    Log.d(TAG, "JPEG " + jpegBuilder.getSaveLocation());
                 }
                 if (rawBuilder != null) {
                     rawBuilder.setResult(result);
                     if (jpegBuilder != null) sb.append(", ");
                     sb.append("Saving RAW as: ");
                     sb.append(rawBuilder.getSaveLocation());
+                    Log.d(TAG, "RAW " + rawBuilder.getSaveLocation());
                 }
                 finishedCaptureLocked();
             }
@@ -541,6 +549,8 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
                 finishedCaptureLocked();
             }
             showToast("Capture failed!");
+            Log.d(TAG, "FAILURE " + failure.getReason());
+            Log.d(TAG, "FAILURE " + failure.toString());
         }
 
     };
@@ -676,14 +686,14 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
                         Arrays.asList(map.getOutputSizes(ImageFormat.RAW_SENSOR)),
                         new CompareSizesByArea());
 
-                synchronized(mCameraStateLock) {
+                synchronized (mCameraStateLock) {
                     // Set up ImageReaders for JPEG and RAW outputs.  Place these in a reference
                     // counted wrapper to ensure they are only closed when all background tasks
                     // using them are finished.
                     if (mJpegImageReader == null || mJpegImageReader.getAndRetain() == null) {
                         mJpegImageReader = new RefCountedAutoCloseable<>(
                                 ImageReader.newInstance(largestJpeg.getWidth(),
-                                largestJpeg.getHeight(), ImageFormat.JPEG, /*maxImages*/5));
+                                        largestJpeg.getHeight(), ImageFormat.JPEG, /*maxImages*/5));
                     }
                     mJpegImageReader.get().setOnImageAvailableListener(
                             mOnJpegImageAvailableListener, mBackgroundHandler);
@@ -691,7 +701,7 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
                     if (mRawImageReader == null || mRawImageReader.getAndRetain() == null) {
                         mRawImageReader = new RefCountedAutoCloseable<>(
                                 ImageReader.newInstance(largestRaw.getWidth(),
-                                largestRaw.getHeight(), ImageFormat.RAW_SENSOR, /*maxImages*/ 5));
+                                        largestRaw.getHeight(), ImageFormat.RAW_SENSOR, /*maxImages*/ 5));
                     }
                     mRawImageReader.get().setOnImageAvailableListener(
                             mOnRawImageAvailableListener, mBackgroundHandler);
@@ -736,6 +746,26 @@ public class Camera2RawFragment extends Fragment implements View.OnClickListener
 
             // Attempt to open the camera. mStateCallback will be called on the background handler's
             // thread when this succeeds or fails.
+            if (ActivityCompat.checkSelfPermission(this.getContext(), Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                // TODO: Consider calling
+                //    ActivityCompat#requestPermissions
+
+                // ArrayList<String> permissions = new ArrayList<String>();
+                //ermissions.add(Manifest.permission.CAMERA);
+
+                String permissions[];
+                permissions = new String[1];
+                permissions[0] = Manifest.permission.CAMERA;
+                // permissions[0] = Manifest.permission.READ_EXTERNAL_STORAGE;
+                // permissions[0] = Manifest.permission.WRITE_EXTERNAL_STORAGE;
+                requestPermissions(permissions, 10);
+                // here to request the missing permissions, and then overriding
+                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                //                                          int[] grantResults)
+                // to handle the case where the user grants the permission. See the documentation
+                // for ActivityCompat#requestPermissions for more details.
+                return;
+            }
             manager.openCamera(cameraId, mStateCallback, backgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
